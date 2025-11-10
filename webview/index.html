@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
+  <title>StructVisualizer</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      margin: 0;
+      padding: 16px;
+      background: #fff;
+      color: #333;
+    }
+    .container {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+    .top-controls {
+      display: flex;
+      gap: 16px;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+      align-items: end;
+    }
+    .control-group {
+      display: flex;
+      flex-direction: column;
+    }
+    .panel {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+    }
+    .editor-container, .visualizer-container {
+      flex: 1;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    textarea {
+      width: 100%;
+      height: 100%;
+      resize: none;
+      font-family: 'Courier New', monospace;
+      font-size: 14px;
+      padding: 8px;
+      box-sizing: border-box;
+    }
+    #visualizer-canvas {
+      width: 100%;
+      height: 100%;
+      overflow: auto;
+      background: white;
+    }
+    button {
+      padding: 6px 12px;
+      background: #007acc;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    button:hover {
+      background: #005a9e;
+    }
+    label {
+      display: block;
+      margin-bottom: 4px;
+      font-weight: bold;
+    }
+    input[type="number"], input[type="range"] {
+      padding: 4px;
+      border: 1px solid #ccc;
+      border-radius: 3px;
+    }
+    #pack-input {
+      width: 80px;
+    }
+    #byte-width {
+      width: 100px;
+      margin: 0 8px;
+    }
+    .status {
+      margin-top: 8px;
+      font-family: monospace;
+      font-size: 13px;
+      color: #d00;
+      min-height: 1.5em;
+    }
+    small {
+      color: #666;
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="top-controls">
+      <div class="control-group">
+        <label for="pack-input">Packing (bytes):</label>
+        <input type="number" id="pack-input" value="4" min="0" placeholder="natural">
+        <small>0 or empty = natural alignment</small>
+      </div>
+      <div class="control-group">
+        <label for="byte-width">Byte Width (px):</label>
+        <div style="display:flex;align-items:center;">
+          <input type="range" id="byte-width" min="40" max="200" value="60">
+          <span id="byte-width-value" style="width:50px;margin-left:8px;">60 px</span>
+        </div>
+        <small>Adjust zoom level</small>
+      </div>
+      <div style="margin-top:auto;">
+        <button id="visualize-btn">Visualize</button>
+        <button id="load-example-btn">Load Example</button>
+        <button id="add-to-json-btn">💾 Add Struct to JSON</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="editor-container">
+        <textarea id="code-editor" spellcheck="false">struct Example {
+    uint8_t flags;
+    uint16_t count;
+    void* handler;
+};</textarea>
+      </div>
+    </div>
+
+    <div class="status" id="status-bar"></div>
+
+    <div class="panel" style="height: 300px;">
+      <div class="visualizer-container">
+        <div id="visualizer-canvas"></div>
+      </div>
+    </div>
+  </div>
+
+  <script nonce="${nonce}">
+    (function () {
+        const vscode = acquireVsCodeApi();
+
+        const codeEditor = document.getElementById('code-editor');
+        const packInput = document.getElementById('pack-input');
+        const byteWidthSlider = document.getElementById('byte-width');
+        const byteWidthValue = document.getElementById('byte-width-value');
+        const visualizeBtn = document.getElementById('visualize-btn');
+        const loadExampleBtn = document.getElementById('load-example-btn');
+        const addToJsonBtn = document.getElementById('add-to-json-btn');
+        const visualizerCanvas = document.getElementById('visualizer-canvas');
+        const statusBar = document.getElementById('status-bar');
+
+        let lastLayout = null;
+
+        function setStatus(message, isError = false) {
+            statusBar.textContent = message;
+            statusBar.style.color = isError ? '#d00' : '#007acc';
+        }
+
+        function loadExample() {
+            codeEditor.value = `struct DeviceConfig {
+    uint8 enable    : 1;
+    uint8 mode      : 3;
+    uint8 priority  : 2;
+    uint8 reserved  : 2;
+    uint16 timeout  : 10;
+    uint16 retries  : 6;
+            uint32 data;
+        };`;
+        }
+
+        function runPythonScript(script, args) {
+            return new Promise((resolve, reject) => {
+                const callback = (event) => {
+                    const message = event.data;
+                    if (message.command === 'pythonResult') {
+                        window.removeEventListener('message', callback);
+                        resolve(message.output);
+                    } else if (message.command === 'pythonError') {
+                        window.removeEventListener('message', callback);
+                        reject(message.error);
+                    }
+                };
+                window.addEventListener('message', callback);
+                vscode.postMessage({ command: 'runPython', script, args });
+            });
+        }
+
+        async function visualize(addToDb = false) {
+            const code = codeEditor.value;
+            const packValue = packInput.value.trim();
+            const packArg = packValue === '' || packValue === '0' ? '0' : packValue;
+
+            setStatus('Processing...', false);
+
+            try {
+                const args = [code, packArg, addToDb ? '1' : '0'];
+                const result = await runPythonScript('main_wrapper.py', args);
+                const layout = JSON.parse(result);
+
+                if (layout.error) {
+                    setStatus(layout.error, true);
+                    visualizerCanvas.innerHTML = '';
+                    lastLayout = null;
+                } else if (layout.unknown_type) {
+                    setStatus(`Unknown type: ${layout.unknown_type}`, true);
+                    lastLayout = null;
+                } else {
+                    lastLayout = layout;
+                    renderLayout(layout, parseInt(byteWidthSlider.value));
+                    if (addToDb) {
+                        alert(`Struct '${layout.struct_name}' added to config.json`);
+                    }
+                }
+            } catch (err) {
+                setStatus(`Error: ${err}`, true);
+                lastLayout = null;
+            }
+        }
+
+        function renderLayout(layout, byteWidth = 60) {
+            const canvas = visualizerCanvas;
+            canvas.innerHTML = '';
+
+            const scale = byteWidth;
+            const rowBytes = layout.pack_value || layout.max_align;
+            let html = '';
+
+            const dataBytes = layout.fields.reduce((sum, f) => sum + f.size, 0);
+            const padBytes = layout.total_size - dataBytes;
+            const efficiency = layout.total_size ? ((dataBytes / layout.total_size) * 100).toFixed(1) : '0.0';
+            const color = efficiency >= 70 ? 'black' : 'red';
+            html += `<div style="font-family:monospace;font-weight:bold;color:${color};margin-bottom:8px;">
+                Size: ${layout.total_size} B | Data: ${dataBytes} B | Pad: ${padBytes} B | Eff: ${efficiency}%
+            </div>`;
+            html += `<div style="font-family:monospace;font-weight:bold;margin-bottom:12px;">
+                ${layout.pack_value ? `Packed: ${layout.pack_value} B` : `Natural (max align ${layout.max_align} B)`}
+            </div>`;
+
+            let byteOffset = 0;
+            while (byteOffset < layout.total_size) {
+                const start = byteOffset;
+                const end = Math.min(byteOffset + rowBytes, layout.total_size);
+                const rowWidth = (end - start) * scale;
+            
+                // Determine max bit-fields in this row to set height
+                let maxBitFields = 0;
+                for (const field of layout.fields) {
+                    const fStart = field.offset;
+                    const fEnd = fStart + field.size;
+                    if (fStart < end && fEnd > start && field.bit_fields) {
+                        maxBitFields = Math.max(maxBitFields, field.bit_fields.length);
+                    }
+                }
+              
+                // Base height: 50px. Add 14px per extra bit-field beyond 1
+                const rowHeight = Math.max(50, 50 + Math.max(0, maxBitFields - 1) * 14);
+              
+                html += `<div style="position:relative;height:${rowHeight}px;border:2px solid black;width:${rowWidth}px;margin-bottom:10px;">`;
+                
+                // Byte numbers (top)
+                for (let i = start; i < end; i++) {
+                    if (i < 1000) {
+                        html += `<div style="position:absolute;top:-24px;left:${(i - start) * scale}px;width:${scale}px;text-align:center;font-family:monospace;font-size:10px;color:blue;">${i}</div>`;
+                    }
+                }
+              
+                // Row offset label (left)
+                html += `<div style="position:absolute;left:-30px;top:${rowHeight/2 - 8}px;font-family:monospace;font-size:12px;color:darkblue;">${start.toString().padStart(2, ' ')}</div>`;
+              
+                // Collect padding and fields
+                const items = [];
+              
+                // Add padding
+                for (const field of layout.fields) {
+                    const padStart = field.offset - field.padding_before;
+                    const padEnd = field.offset;
+                    if (padStart < end && padEnd > start) {
+                        const ps = Math.max(padStart, start);
+                        const pe = Math.min(padEnd, end);
+                        if (pe > ps) {
+                            items.push({ type: 'pad', start: ps, end: pe });
+                        }
+                    }
+                }
+              
+                // Add fields
+                for (const field of layout.fields) {
+                    const fStart = field.offset;
+                    const fEnd = fStart + field.size;
+                    if (fStart < end && fEnd > start) {
+                        const fs = Math.max(fStart, start);
+                        const fe = Math.min(fEnd, end);
+                        if (fe > fs) {
+                            items.push({ type: 'field', start: fs, end: fe, field: field });
+                        }
+                    }
+                }
+              
+                items.sort((a, b) => a.start - b.start);
+              
+                for (const item of items) {
+                    const x = (item.start - start) * scale;
+                    const w = (item.end - item.start) * scale;
+                    if (item.type === 'pad') {
+                        html += `<div style="position:absolute;left:${x}px;top:0;height:${rowHeight}px;width:${w}px;background:#ff4d4d;opacity:0.7;"></div>`;
+                        if (w > 30) {
+                            html += `<div style="position:absolute;left:${x + w/2}px;top:${rowHeight/2 - 8}px;transform:translateX(-50%);color:white;font-family:monospace;font-size:10px;font-weight:bold;">PAD</div>`;
+                        }
+                    } else {
+                        const field = item.field;
+                        let color = 'lightgreen';
+                        if (field.type === 'function_ptr') color = 'plum';
+                        else if (field.is_pointer) color = 'lightblue';
+                    
+                        html += `<div style="position:absolute;left:${x}px;top:0;height:${rowHeight}px;width:${w}px;background:${color};border:2px solid black;"></div>`;
+                    
+                        // Main field label
+                        let label = field.name;
+                        if (field.type === 'function_ptr') label += '_fn';
+                        else if (field.is_pointer) label += '*';
+                        if (field.is_array && field.count > 1) label += `[${field.count}]`;
+                    
+                        if (w > 40) {
+                            html += `<div style="position:absolute;left:${x + w/2}px;top:12px;transform:translateX(-50%);font-family:monospace;font-size:11px;font-weight:bold;">${label}</div>`;
+                        }
+                      
+                        // Bit-field labels (vertical stack)
+                        if (field.bit_fields && field.bit_fields.length > 0) {
+                            if (field.bit_fields.length === 1) {
+                                const bitLabel = `${field.bit_fields[0].name}:${field.bit_fields[0].bits}b`;
+                                if (w > 30) {
+                                    html += `<div style="position:absolute;left:${x + w/2}px;top:28px;transform:translateX(-50%);font-family:monospace;font-size:9px;">${bitLabel}</div>`;
+                                }
+                            } else if (w > 40) {
+                                // Stack vertically
+                                const startY = 28;
+                                field.bit_fields.forEach((bit, idx) => {
+                                    const bitLabel = `${bit.name}:${bit.bits}b`;
+                                    const yPos = startY + idx * 14;
+                                    if (yPos + 10 < rowHeight) { // avoid overflow
+                                        html += `<div style="position:absolute;left:${x + 4}px;top:${yPos}px;font-family:monospace;font-size:9px;">${bitLabel}</div>`;
+                                    }
+                                });
+                            }
+                        }
+                    }
+                }
+              
+                html += `</div>`;
+                byteOffset += rowBytes;
+            }
+            canvas.innerHTML = html;
+            setStatus('Visualization complete.', false);
+        }
+
+        // Event listeners
+        visualizeBtn.addEventListener('click', () => visualize(false));
+        loadExampleBtn.addEventListener('click', loadExample);
+        addToJsonBtn.addEventListener('click', () => visualize(true));
+
+        byteWidthSlider.addEventListener('input', () => {
+            const value = byteWidthSlider.value;
+            byteWidthValue.textContent = `${value} px`;
+            if (lastLayout) {
+                renderLayout(lastLayout, parseInt(value));
+            }
+        });
+
+        loadExample();
+    })();
+  </script>
+</body>
+</html>

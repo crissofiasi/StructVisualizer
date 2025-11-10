@@ -1,0 +1,32 @@
+{
+  "name": "struct-visualizer",
+  "displayName": "StructVisualizer",
+  "description": "Parse and visualize C struct memory layout with alignment, padding, pointers, and packing control",
+  "version": "0.1.0",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": ["Other", "Education", "Visualization"],
+  "activationEvents": [
+    "onCommand:struct-visualizer.open"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "struct-visualizer.open",
+        "title": "StructVisualizer: Open Memory Layout Viewer"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.80.0",
+    "@types/node": "18.x",
+    "typescript": "^5.0.0"
+  }
+}
