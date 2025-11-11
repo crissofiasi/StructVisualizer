@@ -1,11 +1,9 @@
-# python_backend/config_manager.py
 import json
 import os
+import sys
 
-# Use the config path provided by the VS Code extension
+# Use config path from environment (VS Code) or default to local
 CONFIG_FILE = os.environ.get('STRUCT_VISUALIZER_CONFIG')
-
-# If not set (e.g., running standalone), default to local config.json
 if not CONFIG_FILE:
     SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
     CONFIG_FILE = os.path.join(SCRIPT_DIR, 'config.json')
@@ -44,7 +42,6 @@ def load_config():
         try:
             with open(CONFIG_FILE, 'r') as f:
                 config = json.load(f)
-                # Ensure all default sections exist
                 for key, default in DEFAULT_CONFIG.items():
                     if key not in config:
                         config[key] = default
@@ -53,7 +50,6 @@ def load_config():
             print(f"Error loading config: {e}", file=sys.stderr)
             return DEFAULT_CONFIG.copy()
     else:
-        # Create config in the allowed directory
         try:
             os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
             with open(CONFIG_FILE, 'w') as f:

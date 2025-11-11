@@ -1,9 +1,8 @@
 import sys
 import os
-import json
-
 sys.path.insert(0, os.path.dirname(__file__))
 
+import json
 from c_parser import parse_structs, struct_definitions
 from layout_engine import compute_layout
 from config_manager import load_config, save_config
@@ -26,17 +25,13 @@ def main():
             "align": config["pointer"]["align"]
         }
 
-        # Clear old definitions
         struct_definitions.clear()
+        parse_structs(definition_text)
 
-        # Parse the full definition (e.g., "struct X { ... };")
-        cleaned_code = parse_structs(definition_text)
         if type_name not in struct_definitions:
-            # Maybe it's a typedef? Try to find any struct
             if not struct_definitions:
                 print(json.dumps({"success": False, "error": "No struct found in definition"}))
                 return
-            # Use the first defined struct
             actual_name = next(iter(struct_definitions))
             if actual_name != type_name:
                 print(json.dumps({"success": False, "error": f"Expected {type_name}, got {actual_name}"}))

@@ -1,10 +1,8 @@
-#!/usr/bin/env python3
 import sys
 import os
-import json
-
 sys.path.insert(0, os.path.dirname(__file__))
 
+import json
 from c_parser import parse_structs, struct_definitions
 from layout_engine import compute_layout
 from config_manager import load_config, save_config
@@ -61,7 +59,7 @@ def main():
         "max_align": layout["max_align"],
         "pack_value": pack_value
     }
-    print(json.dumps(result, indent=None, separators=(',', ':')))
+    print(json.dumps(result))
 
 if __name__ == "__main__":
     main()

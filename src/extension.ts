@@ -42,160 +42,165 @@ function createVisualizerPanel(context: vscode.ExtensionContext) {
         }
     );
 
+    // Compute webview URIs for all JS modules
     const webviewPath = vscode.Uri.joinPath(context.extensionUri, 'webview', 'index.html');
+    const mainJs = panel.webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'webview', 'main.js'));
+    const tabsJs = panel.webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'webview', 'tabs.js'));
+    const codeTabJs = panel.webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'webview', 'codeTab.js'));
+    const visualizerTabJs = panel.webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'webview', 'visualizerTab.js'));
+    const typesTabJs = panel.webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'webview', 'typesTab.js'));
+    const utilsJs = panel.webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'webview', 'utils.js'));
+
     fs.readFile(webviewPath.fsPath, 'utf8', (err, data) => {
         if (err) {
             panel.webview.html = `<body>Error loading UI: ${err.message}</body>`;
             return;
         }
         const nonce = getNonce();
-        const backendDir = context.asAbsolutePath('python_backend').replace(/\\/g, '/');
         const updatedHtml = data
-            .replace(/\${webview.cspSource}/g, panel.webview.cspSource)
             .replace(/\${nonce}/g, nonce)
-            .replace(/\${backendDir}/g, backendDir);
+            .replace(/\${mainJs}/g, mainJs.toString())
+            .replace(/\${tabsJs}/g, tabsJs.toString())
+            .replace(/\${codeTabJs}/g, codeTabJs.toString())
+            .replace(/\${visualizerTabJs}/g, visualizerTabJs.toString())
+            .replace(/\${typesTabJs}/g, typesTabJs.toString())
+            .replace(/\${utilsJs}/g, utilsJs.toString());
         panel.webview.html = updatedHtml;
     });
 
- panel.webview.onDidReceiveMessage(async (message) => {
-    const pythonPath = await getPythonPath();
-    const env = { ...process.env };
-    env.STRUCT_VISUALIZER_CONFIG = configPath;
+    panel.webview.onDidReceiveMessage(async (message) => {
+        const pythonPath = await getPythonPath();
+        const env = { ...process.env };
+        env.STRUCT_VISUALIZER_CONFIG = configPath;
 
-    switch (message.command) {
-        case 'runPython': {
-            const { script, args } = message;
-            const scriptPath = path.join(context.asAbsolutePath('python_backend'), script);
-            const allArgs = [scriptPath, ...args];
-            try {
-                const result = cp.spawnSync(pythonPath, allArgs, {
-                    encoding: 'utf-8',
-                    timeout: 10000,
-                    maxBuffer: 10 * 1024 * 1024,
-                    env: env
-                });
-                if (result.error) {
-                    panel.webview.postMessage({ command: 'pythonError', error: result.error.message });
-                } else if (result.status !== 0) {
-                    panel.webview.postMessage({ command: 'pythonError', error: result.stderr || 'Python script failed' });
-                } else {
-                    panel.webview.postMessage({ command: 'pythonResult', output: result.stdout });
-                }
-            } catch (e: any) {
-                panel.webview.postMessage({ command: 'pythonError', error: e.message });
-            }
-            break;
-        }
-
-        case 'unknownType': {
-            const { typeName, structUri, structLine } = message;
-            if (!structUri || structLine === undefined) {
-                panel.webview.postMessage({ command: 'promptUnknownType', typeName });
-                return;
-            }
-
-            const resolver = new TypeResolver(context);
-            const definition = await resolver.resolveType(
-                typeName,
-                vscode.Uri.parse(structUri),
-                new vscode.Position(structLine, 0)
-            );
-
-            if (definition) {
-                const saveScript = path.join(context.asAbsolutePath('python_backend'), 'save_type.py');
-                const saveArgs = [typeName, definition];
+        switch (message.command) {
+            case 'runPython': {
+                const { script, args } = message;
+                const scriptPath = path.join(context.asAbsolutePath('python_backend'), script);
+                const allArgs = [scriptPath, ...args];
                 try {
-                    const result = cp.spawnSync(pythonPath, [saveScript, ...saveArgs], {
+                    const result = cp.spawnSync(pythonPath, allArgs, {
                         encoding: 'utf-8',
-                        timeout: 5000,
+                        timeout: 10000,
                         maxBuffer: 10 * 1024 * 1024,
                         env: env
                     });
-
-                    if (result.status === 0) {
-                        const output = JSON.parse(result.stdout);
-                        if (output.success) {
-                            panel.webview.postMessage({ command: 'retryVisualization' });
-                            return;
-                        }
+                    if (result.error) {
+                        panel.webview.postMessage({ command: 'pythonError', error: result.error.message });
+                    } else if (result.status !== 0) {
+                        panel.webview.postMessage({ command: 'pythonError', error: result.stderr || 'Python script failed' });
+                    } else {
+                        panel.webview.postMessage({ command: 'pythonResult', output: result.stdout });
                     }
-                } catch (e) {
-                    console.error('Save type failed:', e);
+                } catch (e: any) {
+                    panel.webview.postMessage({ command: 'pythonError', error: e.message });
                 }
+                break;
             }
 
-            panel.webview.postMessage({ command: 'promptUnknownType', typeName });
-            break;
-        }
+            case 'unknownType': {
+                const { typeName, structUri, structLine } = message;
+                if (!structUri || structLine === undefined) {
+                    panel.webview.postMessage({ command: 'promptUnknownType', typeName });
+                    return;
+                }
 
-        case 'saveManualType': {
-            const { typeName, size, align } = message;
-            const configPath = path.join(context.globalStorageUri.fsPath, 'config.json');
-            let config: any = { types: {}, pointer: { size: 4, align: 4 }, gui: {} };
-            try {
-                const raw = fs.readFileSync(configPath, 'utf8');
-                config = JSON.parse(raw);
-            } catch (e) {
-                // Use default config if file missing or invalid
+                const resolver = new TypeResolver(context);
+                const definition = await resolver.resolveType(
+                    typeName,
+                    vscode.Uri.parse(structUri),
+                    new vscode.Position(structLine, 0)
+                );
+
+                if (definition) {
+                    const saveScript = path.join(context.asAbsolutePath('python_backend'), 'save_type.py');
+                    const saveArgs = [typeName, definition];
+                    try {
+                        const result = cp.spawnSync(pythonPath, [saveScript, ...saveArgs], {
+                            encoding: 'utf-8',
+                            timeout: 5000,
+                            maxBuffer: 10 * 1024 * 1024,
+                            env: env
+                        });
+
+                        if (result.status === 0) {
+                            const output = JSON.parse(result.stdout);
+                            if (output.success) {
+                                panel.webview.postMessage({ command: 'retryVisualization' });
+                                return;
+                            }
+                        }
+                    } catch (e) {
+                        console.error('Save type failed:', e);
+                    }
+                }
+
+                panel.webview.postMessage({ command: 'promptUnknownType', typeName });
+                break;
             }
-            if (!config.types) config.types = {};
-            config.types[typeName] = { size, align };
-            fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
-            panel.webview.postMessage({ command: 'retryVisualization' });
-            break;
-        }
-        case 'loadTypes': {
-            const pythonPath = await getPythonPath();
-            const scriptPath = path.join(context.asAbsolutePath('python_backend'), 'load_types.py');
-            console.log('[StructVisualizer] Running load_types.py');
-            const result = cp.spawnSync(pythonPath, [scriptPath], { encoding: 'utf8' });
-            console.log('[StructVisualizer] load_types result:', {
-                status: result.status,
-                stdout: result.stdout,
-                stderr: result.stderr
-            });
-            if (result.status === 0) {
+
+            case 'saveManualType': {
+                const { typeName, size, align } = message;
+                const configPath = path.join(context.globalStorageUri.fsPath, 'config.json');
+                let config: any = { types: {}, pointer: { size: 4, align: 4 }, gui: {} };
                 try {
-                    const types = JSON.parse(result.stdout);
-                    panel.webview.postMessage({ command: 'typesLoaded', types });
+                    const raw = fs.readFileSync(configPath, 'utf8');
+                    config = JSON.parse(raw);
                 } catch (e) {
-                    console.error('[StructVisualizer] Failed to parse types:', result.stdout);
+                    // Use default config if file missing or invalid
                 }
-            } else {
-                console.error('[StructVisualizer] load_types.py failed:', result.stderr || result.stdout);
+                if (!config.types) config.types = {};
+                config.types[typeName] = { size, align };
+                fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+                panel.webview.postMessage({ command: 'retryVisualization' });
+                break;
             }
-            break;
+
+            case 'loadTypes': {
+                const scriptPath = path.join(context.asAbsolutePath('python_backend'), 'load_types.py');
+                const result = cp.spawnSync(pythonPath, [scriptPath], { encoding: 'utf8' });
+                if (result.status === 0) {
+                    try {
+                        const types = JSON.parse(result.stdout);
+                        panel.webview.postMessage({ command: 'typesLoaded', types });
+                    } catch (e) {
+                        console.error('[StructVisualizer] Failed to parse types:', result.stdout);
+                    }
+                } else {
+                    console.error('[StructVisualizer] load_types.py failed:', result.stderr || result.stdout);
+                }
+                break;
+            }
+
+            case 'addType':
+            case 'updateType': {
+                const { typeName, size, align } = message;
+                const script = message.command === 'addType' ? 'add_type.py' : 'update_type.py';
+                const scriptPath = path.join(context.asAbsolutePath('python_backend'), script);
+                const result = cp.spawnSync(pythonPath, [scriptPath, typeName, size.toString(), align.toString()], { encoding: 'utf8' });
+                panel.webview.postMessage({
+                    command: 'typeActionResult',
+                    success: result.status === 0,
+                    action: message.command.replace('Type', ''),
+                    error: result.stderr || result.stdout
+                });
+                break;
+            }
+
+            case 'deleteType': {
+                const { typeName } = message;
+                const scriptPath = path.join(context.asAbsolutePath('python_backend'), 'delete_type.py');
+                const result = cp.spawnSync(pythonPath, [scriptPath, typeName], { encoding: 'utf8' });
+                panel.webview.postMessage({
+                    command: 'typeActionResult',
+                    success: result.status === 0,
+                    action: 'delete',
+                    error: result.stderr || result.stdout
+                });
+                break;
+            }
         }
-        case 'addType':
-        case 'updateType': {
-            const { typeName, size, align } = message;
-            const pythonPath = await getPythonPath();
-            const script = message.command === 'addType' ? 'add_type.py' : 'update_type.py';
-            const scriptPath = path.join(context.asAbsolutePath('python_backend'), script);
-            const result = cp.spawnSync(pythonPath, [scriptPath, typeName, size.toString(), align.toString()], { encoding: 'utf8' });
-            panel.webview.postMessage({
-                command: 'typeActionResult',
-                success: result.status === 0,
-                action: message.command.replace('Type', ''),
-                error: result.stderr || result.stdout
-            });
-            break;
-        }
-        case 'deleteType': {
-            const { typeName } = message;
-            const pythonPath = await getPythonPath();
-            const scriptPath = path.join(context.asAbsolutePath('python_backend'), 'delete_type.py');
-            const result = cp.spawnSync(pythonPath, [scriptPath, typeName], { encoding: 'utf8' });
-            panel.webview.postMessage({
-                command: 'typeActionResult',
-                success: result.status === 0,
-                action: 'delete',
-                error: result.stderr || result.stdout
-            });
-            break;
-        }  
-    }
-});
+    });
 
     return panel;
 }
