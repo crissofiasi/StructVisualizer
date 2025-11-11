@@ -8,7 +8,8 @@
   },
   "categories": ["Other", "Education", "Visualization"],
   "activationEvents": [
-    "onCommand:struct-visualizer.open"
+    "onCommand:struct-visualizer.open",
+    "onCommand:struct-visualizer.visualizeFromEditor"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -16,8 +17,32 @@
       {
         "command": "struct-visualizer.open",
         "title": "StructVisualizer: Open Memory Layout Viewer"
+      },
+      {
+        "command": "struct-visualizer.visualizeFromEditor",
+        "title": "Visualize Struct"
       }
-    ]
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "struct-visualizer.visualizeFromEditor",
+          "when": "resourceLangId == c || resourceLangId == cpp",
+          "group": "navigation"
+        }
+      ]
+    },
+    "configuration": {
+     "title": "StructVisualizer",
+     "properties": {
+       "struct-visualizer.typeResolver.excludePaths": {
+         "type": "array",
+         "items": { "type": "string" },
+         "default": [],
+         "description": "File paths or globs to exclude when resolving types (e.g., ['**/build/**', '**/*.bak'])"
+       }
+     }
+    }   
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",

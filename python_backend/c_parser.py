@@ -47,18 +47,30 @@ def parse_structs(code):
 
     # Step 4: Match structs
     found = False
-
-    # Match: typedef struct { ... } Name;
-    typedef_matches = re.findall(r'typedef\s+struct\s*\{([^}]*)\}\s*(\w+)\s*;', code_normalized, re.DOTALL)
+ 
+    # Match: typedef struct [Tag] { ... } Name;
+    # Handles: typedef struct { ... } Name;  AND  typedef struct Tag { ... } Name;
+    typedef_matches = re.findall(
+        r'typedef\s+struct\s+(?:\w+\s+)?\{([^}]*)\}\s*(\w+)\s*;',
+        code_normalized,
+        re.DOTALL
+    )
     for body, name in typedef_matches:
         struct_definitions[name] = parse_fields(body)
         found = True
 
     # Match: struct Name { ... };
-    struct_matches = re.findall(r'struct\s+(\w+)\s*\{([^}]*)\}\s*;', code_normalized, re.DOTALL)
+    struct_matches = re.findall(
+        r'struct\s+(\w+)\s*\{([^}]*)\}\s*;',
+        code_normalized,
+        re.DOTALL
+    )
     for name, body in struct_matches:
         struct_definitions[name] = parse_fields(body)
         found = True
+
+
+
 
     return code_display  # ✅ Return cleaned code for GUI
 

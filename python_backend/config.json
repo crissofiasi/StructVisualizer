@@ -1,0 +1,76 @@
+{
+  "types": {
+    "char": {
+      "size": 1,
+      "align": 1
+    },
+    "boolean": {
+      "size": 1,
+      "align": 1
+    },
+    "short": {
+      "size": 2,
+      "align": 2
+    },
+    "int": {
+      "size": 4,
+      "align": 4
+    },
+    "long": {
+      "size": 8,
+      "align": 8
+    },
+    "long long": {
+      "size": 8,
+      "align": 8
+    },
+    "float": {
+      "size": 4,
+      "align": 4
+    },
+    "double": {
+      "size": 8,
+      "align": 8
+    },
+    "size_t": {
+      "size": 4,
+      "align": 4
+    },
+    "time_t": {
+      "size": 4,
+      "align": 4
+    },
+    "uint16": {
+      "size": 2,
+      "align": 2
+    },
+    "uint32": {
+      "size": 4,
+      "align": 4
+    },
+    "uint64": {
+      "size": 8,
+      "align": 8
+    },
+    "uint8": {
+      "size": 1,
+      "align": 1
+    },
+    "Std_ReturnType": {
+      "size": 1,
+      "align": 1
+    }
+  },
+  "pointer": {
+    "size": 4,
+    "align": 4
+  },
+  "gui": {
+    "window_width": 1800,
+    "window_height": 900,
+    "left_width": 600,
+    "right_width": 400,
+    "byte_width_px": 80,
+    "pack_value": "4"
+  }
+}

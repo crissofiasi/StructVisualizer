@@ -1,7 +1,14 @@
+# python_backend/config_manager.py
 import json
 import os
 
-CONFIG_FILE = os.environ.get('STRUCT_VISUALIZER_CONFIG', 'config.json')
+# Use the config path provided by the VS Code extension
+CONFIG_FILE = os.environ.get('STRUCT_VISUALIZER_CONFIG')
+
+# If not set (e.g., running standalone), default to local config.json
+if not CONFIG_FILE:
+    SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+    CONFIG_FILE = os.path.join(SCRIPT_DIR, 'config.json')
 
 DEFAULT_CONFIG = {
     "types": {
@@ -37,17 +44,29 @@ def load_config():
         try:
             with open(CONFIG_FILE, 'r') as f:
                 config = json.load(f)
+                # Ensure all default sections exist
                 for key, default in DEFAULT_CONFIG.items():
                     if key not in config:
                         config[key] = default
                 return config
-        except:
+        except Exception as e:
+            print(f"Error loading config: {e}", file=sys.stderr)
             return DEFAULT_CONFIG.copy()
     else:
-        with open(CONFIG_FILE, 'w') as f:
-            json.dump(DEFAULT_CONFIG, f, indent=2)
-        return DEFAULT_CONFIG.copy()
+        # Create config in the allowed directory
+        try:
+            os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
+            with open(CONFIG_FILE, 'w') as f:
+                json.dump(DEFAULT_CONFIG, f, indent=2)
+            return DEFAULT_CONFIG.copy()
+        except Exception as e:
+            print(f"Error creating config: {e}", file=sys.stderr)
+            return DEFAULT_CONFIG.copy()
 
 def save_config(config):
-    with open(CONFIG_FILE, 'w') as f:
-        json.dump(config, f, indent=2)
+    try:
+        os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
+        with open(CONFIG_FILE, 'w') as f:
+            json.dump(config, f, indent=2)
+    except Exception as e:
+        print(f"Error saving config: {e}", file=sys.stderr)
