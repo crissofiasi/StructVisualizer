@@ -8,9 +8,9 @@ window.StructVisualizer.utils = {
                 window.StructVisualizer.codeTab.preloadCode(message.code);
                 window.StructVisualizer.tabs.switchTab('code');
             } else if (message.command === 'pythonResult') {
-                window.StructVisualizer.visualizerTab.handlePythonResult(message.output);
+                this.handlePythonResult(message.output);
             } else if (message.command === 'pythonError') {
-                window.StructVisualizer.visualizerTab.setStatus(`Python error: ${message.error}`, true);
+                this.setStatus(`Python error: ${message.error}`, true);
             } else if (message.command === 'retryVisualization') {
                 window.StructVisualizer.codeTab.visualize(false);
             } else if (message.command === 'typesLoaded') {
@@ -19,7 +19,7 @@ window.StructVisualizer.utils = {
                 if (message.success) {
                     window.StructVisualizer.vscode.postMessage({ command: 'loadTypes' });
                 } else {
-                    window.StructVisualizer.visualizerTab.setStatus('Action failed: ' + message.error, true);
+                    this.setStatus('Action failed: ' + message.error, true);
                 }
             }
         });
@@ -29,6 +29,29 @@ window.StructVisualizer.utils = {
         const statusBar = window.StructVisualizer.elements.statusBar;
         statusBar.textContent = message;
         statusBar.style.color = isError ? '#d00' : '#007acc';
+    },
+
+    handlePythonResult(output) {
+        try {
+            const layout = JSON.parse(output);
+            if (layout.error) {
+                this.setStatus(layout.error, true);
+            } else if (layout.unknown_type) {
+                this.showTypePrompt(layout.unknown_type);
+            } else {
+                // Auto-refresh types if a struct was added to JSON
+                if (layout.added_type) {
+                    window.StructVisualizer.vscode.postMessage({ command: 'loadTypes' });
+                    this.setStatus(`Struct '${layout.struct_name}' added to config.json`, false);
+                }
+                
+                window.StructVisualizer.lastLayout = layout;
+                window.StructVisualizer.tabs.switchTab('visualizer');
+                window.StructVisualizer.visualizerTab.renderLayout(layout, parseInt(window.StructVisualizer.elements.byteWidthSlider.value));
+            }
+        } catch (e) {
+            this.setStatus('Invalid Python output', true);
+        }
     },
 
     showConfirmDialog(message, onConfirm) {

@@ -46,11 +46,13 @@ def main():
         return
 
     if add_to_db:
+        print(f"DEBUG: Adding struct '{struct_name}' to config", file=sys.stderr)
         config["types"][struct_name] = {
             "size": layout["total_size"],
             "align": layout["max_align"]
         }
         save_config(config)
+        print(f"DEBUG: Struct saved successfully", file=sys.stderr)
 
     result = {
         "struct_name": struct_name,

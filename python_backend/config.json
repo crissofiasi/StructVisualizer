@@ -59,6 +59,10 @@
     "Std_ReturnType": {
       "size": 1,
       "align": 1
+    },
+    "aaa": {
+      "size": 1,
+      "align": 1
     }
   },
   "pointer": {

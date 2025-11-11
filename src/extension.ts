@@ -157,8 +157,14 @@ function createVisualizerPanel(context: vscode.ExtensionContext) {
             }
 
             case 'loadTypes': {
+                const pythonPath = await getPythonPath();
+                const env = { ...process.env };
+                env.STRUCT_VISUALIZER_CONFIG = path.join(context.globalStorageUri.fsPath, 'config.json');
                 const scriptPath = path.join(context.asAbsolutePath('python_backend'), 'load_types.py');
-                const result = cp.spawnSync(pythonPath, [scriptPath], { encoding: 'utf8' });
+                const result = cp.spawnSync(pythonPath, [scriptPath], { 
+                    encoding: 'utf8',
+                    env: env 
+                });
                 if (result.status === 0) {
                     try {
                         const types = JSON.parse(result.stdout);
@@ -171,13 +177,19 @@ function createVisualizerPanel(context: vscode.ExtensionContext) {
                 }
                 break;
             }
-
+            
             case 'addType':
             case 'updateType': {
                 const { typeName, size, align } = message;
+                const pythonPath = await getPythonPath();
+                const env = { ...process.env };
+                env.STRUCT_VISUALIZER_CONFIG = path.join(context.globalStorageUri.fsPath, 'config.json');
                 const script = message.command === 'addType' ? 'add_type.py' : 'update_type.py';
                 const scriptPath = path.join(context.asAbsolutePath('python_backend'), script);
-                const result = cp.spawnSync(pythonPath, [scriptPath, typeName, size.toString(), align.toString()], { encoding: 'utf8' });
+                const result = cp.spawnSync(pythonPath, [scriptPath, typeName, size.toString(), align.toString()], { 
+                    encoding: 'utf8',
+                    env: env 
+                });
                 panel.webview.postMessage({
                     command: 'typeActionResult',
                     success: result.status === 0,
@@ -186,11 +198,17 @@ function createVisualizerPanel(context: vscode.ExtensionContext) {
                 });
                 break;
             }
-
+            
             case 'deleteType': {
                 const { typeName } = message;
+                const pythonPath = await getPythonPath();
+                const env = { ...process.env };
+                env.STRUCT_VISUALIZER_CONFIG = path.join(context.globalStorageUri.fsPath, 'config.json');
                 const scriptPath = path.join(context.asAbsolutePath('python_backend'), 'delete_type.py');
-                const result = cp.spawnSync(pythonPath, [scriptPath, typeName], { encoding: 'utf8' });
+                const result = cp.spawnSync(pythonPath, [scriptPath, typeName], { 
+                    encoding: 'utf8',
+                    env: env 
+                });
                 panel.webview.postMessage({
                     command: 'typeActionResult',
                     success: result.status === 0,
@@ -366,4 +384,5 @@ export function activate(context: vscode.ExtensionContext) {
     });
 
     context.subscriptions.push(openCmd, fromEditorCmd);
+    console.log('Global storage path:', context.globalStorageUri.fsPath);
 }
